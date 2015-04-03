@@ -6,10 +6,15 @@ from __future__ import print_function
 
 import argparse
 import logging
+import os
 
 
 DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 52698
+
+
+class Error(Exception):
+    """Base exception for this module."""
 
 
 def __config_logging(log_level):
@@ -49,8 +54,22 @@ def __parse_args():
 
 def main():
     """The main function of this module."""
-    options = __parse_args()
-    __config_logging(options.log_level)
+    try:
+        args = __parse_args()
+        __config_logging(args.log_level)
+
+        if os.path.isdir(args.path):
+            raise Error('%s is a directory!' % args.path)
+        elif os.path.isfile(args.path) and not os.access(args.path, os.W_OK):
+            if args.force:
+                logging.warning(
+                        'File %s is not writable. Opening anyway.', args.path)
+            else:
+                raise Error('File %s is not writable! Use -f/--force to open '
+                            'anyway.' % args.path)
+    except Error as e:
+        logging.error(e)
+
     logging.warning('This script is not yet functional.')
 
 
