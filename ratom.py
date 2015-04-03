@@ -2,17 +2,26 @@
 
 """The main module for ratom."""
 
+from __future__ import print_function
+
 import argparse
+import logging
 
 
 DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 52698
 
 
-def parse_args():
+def __config_logging(log_level):
+    """Basic configurations for the logging module."""
+    logging.basicConfig(format='%(levelname)s: %(message)s',
+                        level=getattr(logging, log_level.upper()))
+
+
+def __parse_args():
     """Parses the command-line arguments."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('file-path', help='edit specified file')
+    parser.add_argument('path', help='edit specified file')
     parser.add_argument('-H', '--host', default=DEFAULT_HOST,
                         help='Connect to HOST. Use \'auto\' to detect the host '
                         'from SSH. Defaults to %s.' % DEFAULT_HOST)
@@ -31,6 +40,8 @@ def parse_args():
                         help='Open even if file is not writable.')
     parser.add_argument('-v', '--verbose', default=False, action='store_true',
                         help='Verbose logging messages.')
+    parser.add_argument('--log-level', default='WARNING',
+                        help='Specify the log level.')
     parser.add_argument('--version', default=False, action='store_true',
                         help='Show version and exit.')
     return parser.parse_args()
@@ -38,8 +49,9 @@ def parse_args():
 
 def main():
     """The main function of this module."""
-    parse_args()
-    print('This script is not yet functional.')
+    options = __parse_args()
+    __config_logging(options.log_level)
+    logging.warning('This script is not yet functional.')
 
 
 if __name__ == '__main__':
