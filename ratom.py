@@ -4,8 +4,10 @@
 
 import argparse
 
+
 DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 52698
+
 
 def parse_args():
     """Parses the command-line arguments."""
@@ -33,10 +35,12 @@ def parse_args():
                         help='Show version and exit.')
     return parser.parse_args()
 
+
 def main():
     """The main function of this module."""
     parse_args()
     print('This script is not yet functional.')
+
 
 if __name__ == '__main__':
     main()
