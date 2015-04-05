@@ -7,10 +7,12 @@ from __future__ import print_function
 import argparse
 import logging
 import os
+import socket
 
 
 DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 52698
+DEFAULT_TIMEOUT = 5
 
 
 class Error(Exception):
@@ -21,6 +23,37 @@ def __config_logging(verbose):
     """Basic configurations for the logging module."""
     log_level = logging.INFO if verbose else logging.WARNING
     logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
+
+
+def connect_atom(host, port):
+    """Connects to the remote Atom editor.
+
+    Args:
+        host: The hostname or ip address to connect to.
+        port: The port number to use for connection.
+
+    Returns:
+        A file object to use remote atom.
+
+    Raises:
+        Error if any error happens during the connection.
+    """
+    try:
+        socket.setdefaulttimeout(DEFAULT_TIMEOUT)
+
+        atom_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        atom_socket.connect((host, port))
+        atom_socket.setblocking(True)
+
+        atom = atom_socket.makefile('rw')
+        server_info = atom.readline().strip()  # pylint: disable=no-member
+        if not server_info:
+            raise Error()
+        logging.info('Connected and using: %s', server_info)
+
+        return atom
+    except (Error, IOError, socket.error):
+        raise Error('Unable to connect to Atom on %s:%s', host, port)
 
 
 def __parse_args():
@@ -67,6 +100,7 @@ def main():
                             'anyway.' % args.path)
     except Error as e:
         logging.error(e)
+        exit(1)
 
     logging.warning('This script is not yet functional.')
 
