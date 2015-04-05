@@ -7,12 +7,25 @@ from __future__ import print_function
 import argparse
 import logging
 import os
+import shutil
 import socket
 
 
 DEFAULT_HOST = 'localhost'
 DEFAULT_PORT = 52698
 DEFAULT_TIMEOUT = 5
+
+OPEN_CMD = 'open'
+SAVE_CMD = 'save'
+CLOSE_CMD = 'close'
+
+DATA_SIZE_KEY = 'data'
+DATA_CONTENT_KEY = 'content'
+DATA_ON_SAVE_KEY = 'data-on-save'
+DISPLAY_NAME_KEY = 'display-name'
+PATH_KEY = 'token'
+REAL_PATH_KEY = 'real-path'
+RE_ACTIVATE_KEY = 're-activate'
 
 
 class Error(Exception):
@@ -25,35 +38,62 @@ def __config_logging(verbose):
     logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
 
 
-def connect_atom(host, port):
-    """Connects to the remote Atom editor.
+def open_atom(atom, path):
+    """Opens |path| in the remote |atom|."""
+    cmd = {
+            DISPLAY_NAME_KEY: '%s:%s' % (socket.gethostname(), path),
+            REAL_PATH_KEY: os.path.abspath(path), DATA_ON_SAVE_KEY: 'yes',
+            RE_ACTIVATE_KEY: 'yes', PATH_KEY: path,
+    }
+    if os.path.isfile(path):
+        with open(path, 'r') as file:
+            cmd[DATA_CONTENT_KEY] = file.read()
+            cmd[DATA_SIZE_KEY] = file.tell()
 
-    Args:
-        host: The hostname or ip address to connect to.
-        port: The port number to use for connection.
+    atom.write('%s\n' % OPEN_CMD)
+    for key, val in cmd.items():
+        if key not in (DATA_CONTENT_KEY, DATA_SIZE_KEY):
+            atom.write('%s: %s\n' % (key, val))
+    if cmd.get(DATA_SIZE_KEY, 0) and cmd.get(DATA_CONTENT_KEY, ''):
+        atom.write('%s: %d\n%s\n' % (DATA_SIZE_KEY, cmd[DATA_SIZE_KEY],
+                                     cmd[DATA_CONTENT_KEY]))
+    atom.write('.\n')
 
-    Returns:
-        A file object to use remote atom.
+    logging.info('Opening %s', path)
 
-    Raises:
-        Error if any error happens during the connection.
-    """
-    try:
-        socket.setdefaulttimeout(DEFAULT_TIMEOUT)
 
-        atom_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        atom_socket.connect((host, port))
-        atom_socket.setblocking(True)
+def handle_atom(atom):
+    """Handles the remote |atom|'s command."""
+    cmd = None
+    for line in atom:
+        line = line.strip()
 
-        atom = atom_socket.makefile('rw')
-        server_info = atom.readline().strip()  # pylint: disable=no-member
-        if not server_info:
-            raise Error()
-        logging.info('Connected and using: %s', server_info)
+        if not line:
+            if DATA_SIZE_KEY in cmd and cmd.get(PATH_KEY, ''):
+                path = cmd[PATH_KEY]
+                logging.info('Saving %s', path)
 
-        return atom
-    except (Error, IOError, socket.error):
-        raise Error('Unable to connect to Atom on %s:%s', host, port)
+                backup_path = '%s~' % path
+                while os.path.isfile(backup_path):
+                    backup_path = '%s~' % backup_path
+                if os.path.isfile(path):
+                    shutil.copy2(path, backup_path)
+
+                file = open(path, 'w')
+                file.write(cmd[DATA_CONTENT_KEY])
+                if os.path.isfile(backup_path):
+                    os.remove(backup_path)
+
+            cmd = None
+
+        if cmd == None:
+            if line == SAVE_CMD:
+                cmd = {DATA_CONTENT_KEY: ''}
+        else:
+            items = [item.strip() for item in line.split(':', 2)]
+            cmd[items[0]] = items[1]
+            if items[0] == DATA_SIZE_KEY:
+                cmd[DATA_CONTENT_KEY] += atom.read(int(items[1]))
 
 
 def __parse_args():
@@ -98,11 +138,37 @@ def main():
             else:
                 raise Error('File %s is not writable! Use -f/--force to open '
                             'anyway.' % args.path)
+
+        sock = None
+        atom = None
+
+        try:
+            socket.setdefaulttimeout(DEFAULT_TIMEOUT)
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((args.host, args.port))
+            sock.setblocking(True)
+
+            atom = sock.makefile('rw')
+            info = atom.readline().strip()  # pylint: disable=no-member
+            if not info:
+                raise Error()
+            logging.info('Connected and using: %s', info)
+
+            open_atom(atom, args.path)
+            atom.flush()  # pylint: disable=no-member
+            handle_atom(atom)
+        except (Error, socket.error):
+            raise Error('Unable to connect to Atom on %s:%s' %
+                        (args.host, args.port))
+        finally:
+            if sock:
+                sock.close()
+            if atom:
+                atom.close()
     except Error as e:
         logging.error(e)
         exit(1)
-
-    logging.warning('This script is not yet functional.')
 
 
 if __name__ == '__main__':
