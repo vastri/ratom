@@ -17,10 +17,10 @@ class Error(Exception):
     """Base exception for this module."""
 
 
-def __config_logging(log_level):
+def __config_logging(verbose):
     """Basic configurations for the logging module."""
-    logging.basicConfig(format='%(levelname)s: %(message)s',
-                        level=getattr(logging, log_level.upper()))
+    log_level = logging.INFO if verbose else logging.WARNING
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
 
 
 def __parse_args():
@@ -45,8 +45,6 @@ def __parse_args():
                         help='Open even if file is not writable.')
     parser.add_argument('-v', '--verbose', default=False, action='store_true',
                         help='Verbose logging messages.')
-    parser.add_argument('--log-level', default='WARNING',
-                        help='Specify the log level.')
     parser.add_argument('--version', default=False, action='store_true',
                         help='Show version and exit.')
     return parser.parse_args()
@@ -56,7 +54,7 @@ def main():
     """The main function of this module."""
     try:
         args = __parse_args()
-        __config_logging(args.log_level)
+        __config_logging(args.verbose)
 
         if os.path.isdir(args.path):
             raise Error('%s is a directory!' % args.path)
