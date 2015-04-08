@@ -35,7 +35,7 @@ class Error(Exception):
 def __config_logging(verbose):
     """Basic configurations for the logging module."""
     log_level = logging.INFO if verbose else logging.WARNING
-    logging.basicConfig(format='%(levelname)s: %(message)s', level=log_level)
+    logging.basicConfig(format='%[levelname]s %(message)s', level=log_level)
 
 
 def open_atom(atom, path):
