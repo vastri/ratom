@@ -38,6 +38,35 @@ def __config_logging(verbose):
     logging.basicConfig(format='[%(levelname)s] %(message)s', level=log_level)
 
 
+def __check_path(path, force):
+    """Checks if |path| is valid and writable.
+
+    Args:
+      path: The path to check.
+      force: Whether to force open if the file is not writable.
+
+    Raises:
+      Error when |path| is invalid or not writable.
+    """
+    if os.path.isdir(path):
+        # TODO (vastri): Support directory.
+        raise Error('%s is a directory!' % path)
+    elif os.path.isfile(path) and not os.access(path, os.W_OK):
+        if force:
+            logging.warning('File %s is not writable. Opening anyway.', path)
+        else:
+            raise Error('File %s is not writable! Use -f/--force to open '
+                        'anyway.' % path)
+    elif not os.path.isfile(path):
+        dir_path = os.path.dirname(path)
+        if not os.path.isdir(dir_path):
+            raise Error('Directory %s does not exist! Cannot create file %s' %
+                        (dir_path, path))
+        elif not os.access(dir_path, os.W_OK):
+            raise Error('Directory %s is not writable! Cannot create file %s' %
+                        (dir_path, path))
+
+
 def open_atom(atom, path):
     """Opens |path| in the remote |atom|."""
     cmd = {
@@ -128,20 +157,10 @@ def main():
     try:
         args = __parse_args()
         __config_logging(args.verbose)
-
-        if os.path.isdir(args.path):
-            raise Error('%s is a directory!' % args.path)
-        elif os.path.isfile(args.path) and not os.access(args.path, os.W_OK):
-            if args.force:
-                logging.warning(
-                        'File %s is not writable. Opening anyway.', args.path)
-            else:
-                raise Error('File %s is not writable! Use -f/--force to open '
-                            'anyway.' % args.path)
+        __check_path(args.path, args.force)
 
         sock = None
         atom = None
-
         try:
             socket.setdefaulttimeout(DEFAULT_TIMEOUT)
 
