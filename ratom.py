@@ -87,6 +87,11 @@ def __check_path(path, force):
     return True
 
 
+def __parse_line(line):
+    """Parses |line| into a key:value pair."""
+    return [item.strip() for item in line.strip().split(':', 2)]
+
+
 def connect_atom(host, port):
     """Connects to atom on a remote machine.
 
@@ -109,7 +114,7 @@ def connect_atom(host, port):
         sock.setblocking(True)
 
         atom = sock.makefile('rw')
-        info = atom.readline().strip()
+        info = atom.readline().strip()  # pylint: disable=no-member
         if not info:
             raise ConnectError('Unable to read remote atom info.')
         logging.info('Connected and using: %s', info)
@@ -167,49 +172,40 @@ def handle_atom(atom):
     Raises:
       HandleError when error occurs handling the response.
     """
-    while True:
-        try:
-            cmd = atom.readline().strip()
-        except (IOError, socket.error):
-            raise HandleError('Unable to read the remote response.')
-
-        path, data = '', ''
+    try:
         while True:
-            try:
+            line = atom.readline().strip()
+            if not line:
                 line = atom.readline().strip()
                 if not line:
-                    break
-                try:
-                    name, value = [item.strip() for item in line.split(':', 2)]
-                except ValueError:
-                    raise HandleError('Unable to parse the remote response.')
-                if name == PATH_KEY:
-                    path = value
-                elif name == DATA_SIZE_KEY:
-                    data += atom.read(int(value))
-            except (IOError, socket.error):
-                raise HandleError('Unable to read the remote response.')
+                    return
+            if line != SAVE_CMD:
+                break
 
-        if cmd == SAVE_CMD:
+            path_key, path = __parse_line(atom.readline())
+            data_size_key, data_size = __parse_line(atom.readline())
+            if path_key != PATH_KEY or not path or \
+                    data_size_key != DATA_SIZE_KEY or not data_size:
+                raise ValueError()
+
             logging.info('Saving %s', path)
 
             try:
-                backup_path = '%s~' % path
-                while os.path.isfile(backup_path):
-                    backup_path = '%s~' % backup_path
+                tmp_path = path
+                while os.path.isfile(tmp_path):
+                    tmp_path = '%s~' % tmp_path
                 if os.path.isfile(path):
-                    shutil.copy2(path, backup_path)
-
+                    shutil.copy2(path, tmp_path)
                 with open(path, 'w') as file:
-                    file.write(data)
-
-                if os.path.isfile(backup_path):
-                    os.remove(backup_path)
-            except IOError:
-                raise HandleError('Unable to save %s' % path)
-        else:
-            logging.info('Closing %s', path)
-            break
+                    file.write(atom.read(int(data_size)))
+                if os.path.isfile(tmp_path):
+                    os.remove(tmp_path)
+            finally:
+                if os.path.isfile(tmp_path):
+                    shutil.copy2(tmp_path, path)
+                    os.remove(tmp_path)
+    except (IOError, ValueError, socket.error):
+        raise HandleError()
 
 
 def __parse_args():
@@ -244,24 +240,27 @@ def main():
     # pylint: disable=broad-except
     try:
         args = __parse_args()
+
         __config_logging(args.verbose)
-        if not __check_path(args.path, args.force):
+
+        path = os.path.abspath(args.path)
+        if not __check_path(path, args.force):
             exit(1)
 
         sock, atom = None, None
         try:
             (sock, atom) = connect_atom(args.host, args.port)
-            open_atom(atom, args.path)
+            open_atom(atom, path)
             handle_atom(atom)
         except ConnectError:
             logging.error(
                     'Unable to connect to Atom on %s:%s', args.host, args.port)
             exit(1)
         except OpenError as e:
-            logging.error('Unable to open %s. %s', args.path, e)
+            logging.error('Unable to open %s. %s', path, e)
             exit(1)
         except HandleError:
-            logging.error('Unable to handle remote response. %s', e)
+            logging.error('Unable to save file.')
             exit(1)
         finally:
             if sock:
