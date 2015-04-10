@@ -152,10 +152,9 @@ def open_atom(atom, path):
         for key, val in cmd.items():
             if key not in (DATA_CONTENT_KEY, DATA_SIZE_KEY):
                 atom.write('%s: %s\n' % (key, val))
-        if cmd.get(DATA_SIZE_KEY, 0) and cmd.get(DATA_CONTENT_KEY, ''):
-            atom.write('%s: %d\n%s\n' % (DATA_SIZE_KEY, cmd[DATA_SIZE_KEY],
-                                         cmd[DATA_CONTENT_KEY]))
-        atom.write('.\n')
+        atom.write('%s: %d\n%s\n.\n' % (DATA_SIZE_KEY,
+                                        cmd.get(DATA_SIZE_KEY, 0),
+                                        cmd.get(DATA_CONTENT_KEY, '')))
         atom.flush()  # pylint: disable=no-member
     except (IOError, socket.error):
         raise OpenError('Unable to send data to remote atom.')
@@ -191,7 +190,7 @@ def handle_atom(atom):
             logging.info('Saving %s', path)
 
             try:
-                tmp_path = path
+                tmp_path = '%s~' % path
                 while os.path.isfile(tmp_path):
                     tmp_path = '%s~' % tmp_path
                 if os.path.isfile(path):
