@@ -45,26 +45,34 @@ def __check_path(path, force):
       path: The path to check.
       force: Whether to force open if the file is not writable.
 
-    Raises:
-      Error when |path| is invalid or not writable.
+    Returns:
+      True if path is valid and writable, and False otherwise.
     """
     if os.path.isdir(path):
         # TODO (vastri): Support directory.
-        raise Error('%s is a directory!' % path)
-    elif os.path.isfile(path) and not os.access(path, os.W_OK):
+        logging.error('%s is a directory!', path)
+        return False
+
+    if os.path.isfile(path) and not os.access(path, os.W_OK):
         if force:
             logging.warning('File %s is not writable. Opening anyway.', path)
-        else:
-            raise Error('File %s is not writable! Use -f/--force to open '
-                        'anyway.' % path)
-    elif not os.path.isfile(path):
+            return True
+        logging.error(
+                'File %s is not writable! Use -f/--force to open anyway.', path)
+        return False
+
+    if not os.path.isfile(path):
         dir_path = os.path.dirname(path)
         if not os.path.isdir(dir_path):
-            raise Error('Directory %s does not exist! Cannot create file %s' %
-                        (dir_path, path))
-        elif not os.access(dir_path, os.W_OK):
-            raise Error('Directory %s is not writable! Cannot create file %s' %
-                        (dir_path, path))
+            logging.error('Directory %s does not exist! Cannot create file %s',
+                          dir_path, path)
+            return False
+        if not os.access(dir_path, os.W_OK):
+            logging.error('Directory %s is not writable! Cannot create file %s',
+                          dir_path, path)
+            return False
+
+    return True
 
 
 def open_atom(atom, path):
@@ -154,10 +162,12 @@ def __parse_args():
 
 def main():
     """The main function of this module."""
+    # pylint: disable=broad-except
     try:
         args = __parse_args()
         __config_logging(args.verbose)
-        __check_path(args.path, args.force)
+        if not __check_path(args.path, args.force):
+            exit(1)
 
         sock = None
         atom = None
@@ -177,15 +187,16 @@ def main():
             open_atom(atom, args.path)
             atom.flush()  # pylint: disable=no-member
             handle_atom(atom)
-        except (Error, socket.error):
-            raise Error('Unable to connect to Atom on %s:%s' %
-                        (args.host, args.port))
+        except (Error, IOError, socket.error):
+            logging.error(
+                    'Unable to connect to Atom on %s:%s', args.host, args.port)
+            exit(1)
         finally:
             if sock:
                 sock.close()
             if atom:
                 atom.close()
-    except Error as e:
+    except (Exception, KeyboardInterrupt) as e:
         logging.error(e)
         exit(1)
 
