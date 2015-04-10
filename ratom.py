@@ -32,6 +32,18 @@ class Error(Exception):
     """Base exception for this module."""
 
 
+class ConnectError(Error):
+    """Raised when error occurs during connection setup with remote atom."""
+
+
+class OpenError(Error):
+    """Raised when error occurs using remote atom to open files."""
+
+
+class HandleError(Error):
+    """Raised when error occurs saving or closing remotely opened files."""
+
+
 def __config_logging(verbose):
     """Basic configurations for the logging module."""
     log_level = logging.INFO if verbose else logging.WARNING
@@ -75,62 +87,129 @@ def __check_path(path, force):
     return True
 
 
+def connect_atom(host, port):
+    """Connects to atom on a remote machine.
+
+    Args:
+      host: The hostname of the atom server.
+      port: The port number of the atom server.
+
+    Returns:
+      A tuple of a socket object and a file object used for communication with
+      remote atom.
+
+    Raises:
+      ConnectError when error occurs during the connection.
+    """
+    try:
+        socket.setdefaulttimeout(DEFAULT_TIMEOUT)
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((host, port))
+        sock.setblocking(True)
+
+        atom = sock.makefile('rw')
+        info = atom.readline().strip()
+        if not info:
+            raise ConnectError('Unable to read remote atom info.')
+        logging.info('Connected and using: %s', info)
+
+        return (sock, atom)
+    except (IOError, socket.error):
+        raise ConnectError()
+
+
 def open_atom(atom, path):
-    """Opens |path| in the remote |atom|."""
+    """Opens |path| in the remote |atom|.
+
+    Args:
+      atom: The file object used for communication with remote atom.
+      path: The path to open in remote atom.
+
+    Raises:
+      OpenError when error occurs opening the path.
+    """
     cmd = {
             DISPLAY_NAME_KEY: '%s:%s' % (socket.gethostname(), path),
             REAL_PATH_KEY: os.path.abspath(path), DATA_ON_SAVE_KEY: 'yes',
             RE_ACTIVATE_KEY: 'yes', PATH_KEY: path,
     }
     if os.path.isfile(path):
-        with open(path, 'r') as file:
-            cmd[DATA_CONTENT_KEY] = file.read()
-            cmd[DATA_SIZE_KEY] = file.tell()
+        try:
+            with open(path, 'r') as file:
+                cmd[DATA_CONTENT_KEY] = file.read()
+                cmd[DATA_SIZE_KEY] = file.tell()
+        except IOError:
+            raise OpenError('Unable to read %s' % path)
 
-    atom.write('%s\n' % OPEN_CMD)
-    for key, val in cmd.items():
-        if key not in (DATA_CONTENT_KEY, DATA_SIZE_KEY):
-            atom.write('%s: %s\n' % (key, val))
-    if cmd.get(DATA_SIZE_KEY, 0) and cmd.get(DATA_CONTENT_KEY, ''):
-        atom.write('%s: %d\n%s\n' % (DATA_SIZE_KEY, cmd[DATA_SIZE_KEY],
-                                     cmd[DATA_CONTENT_KEY]))
-    atom.write('.\n')
+    try:
+        atom.write('%s\n' % OPEN_CMD)
+        for key, val in cmd.items():
+            if key not in (DATA_CONTENT_KEY, DATA_SIZE_KEY):
+                atom.write('%s: %s\n' % (key, val))
+        if cmd.get(DATA_SIZE_KEY, 0) and cmd.get(DATA_CONTENT_KEY, ''):
+            atom.write('%s: %d\n%s\n' % (DATA_SIZE_KEY, cmd[DATA_SIZE_KEY],
+                                         cmd[DATA_CONTENT_KEY]))
+        atom.write('.\n')
+        atom.flush()  # pylint: disable=no-member
+    except (IOError, socket.error):
+        raise OpenError('Unable to send data to remote atom.')
 
     logging.info('Opening %s', path)
 
 
 def handle_atom(atom):
-    """Handles the remote |atom|'s command."""
-    cmd = None
-    for line in atom:
-        line = line.strip()
+    """Handles the remote |atom|'s response.
 
-        if not line:
-            if DATA_SIZE_KEY in cmd and cmd.get(PATH_KEY, ''):
-                path = cmd[PATH_KEY]
-                logging.info('Saving %s', path)
+    Args:
+      atom: The file object used for communication with remote atom.
 
+    Raises:
+      HandleError when error occurs handling the response.
+    """
+    while True:
+        try:
+            cmd = atom.readline().strip()
+        except (IOError, socket.error):
+            raise HandleError('Unable to read the remote response.')
+
+        path, data = '', ''
+        while True:
+            try:
+                line = atom.readline().strip()
+                if not line:
+                    break
+                try:
+                    name, value = [item.strip() for item in line.split(':', 2)]
+                except ValueError:
+                    raise HandleError('Unable to parse the remote response.')
+                if name == PATH_KEY:
+                    path = value
+                elif name == DATA_SIZE_KEY:
+                    data += atom.read(int(value))
+            except (IOError, socket.error):
+                raise HandleError('Unable to read the remote response.')
+
+        if cmd == SAVE_CMD:
+            logging.info('Saving %s', path)
+
+            try:
                 backup_path = '%s~' % path
                 while os.path.isfile(backup_path):
                     backup_path = '%s~' % backup_path
                 if os.path.isfile(path):
                     shutil.copy2(path, backup_path)
 
-                file = open(path, 'w')
-                file.write(cmd[DATA_CONTENT_KEY])
+                with open(path, 'w') as file:
+                    file.write(data)
+
                 if os.path.isfile(backup_path):
                     os.remove(backup_path)
-
-            cmd = None
-
-        if cmd == None:
-            if line == SAVE_CMD:
-                cmd = {DATA_CONTENT_KEY: ''}
+            except IOError:
+                raise HandleError('Unable to save %s' % path)
         else:
-            items = [item.strip() for item in line.split(':', 2)]
-            cmd[items[0]] = items[1]
-            if items[0] == DATA_SIZE_KEY:
-                cmd[DATA_CONTENT_KEY] += atom.read(int(items[1]))
+            logging.info('Closing %s', path)
+            break
 
 
 def __parse_args():
@@ -169,27 +248,20 @@ def main():
         if not __check_path(args.path, args.force):
             exit(1)
 
-        sock = None
-        atom = None
+        sock, atom = None, None
         try:
-            socket.setdefaulttimeout(DEFAULT_TIMEOUT)
-
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((args.host, args.port))
-            sock.setblocking(True)
-
-            atom = sock.makefile('rw')
-            info = atom.readline().strip()  # pylint: disable=no-member
-            if not info:
-                raise Error()
-            logging.info('Connected and using: %s', info)
-
+            (sock, atom) = connect_atom(args.host, args.port)
             open_atom(atom, args.path)
-            atom.flush()  # pylint: disable=no-member
             handle_atom(atom)
-        except (Error, IOError, socket.error):
+        except ConnectError:
             logging.error(
                     'Unable to connect to Atom on %s:%s', args.host, args.port)
+            exit(1)
+        except OpenError as e:
+            logging.error('Unable to open %s. %s', args.path, e)
+            exit(1)
+        except HandleError:
+            logging.error('Unable to handle remote response. %s', e)
             exit(1)
         finally:
             if sock:
