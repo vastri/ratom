@@ -120,8 +120,8 @@ def connect_atom(host, port):
         logging.info('Connected and using: %s', info)
 
         return (sock, atom)
-    except (IOError, socket.error):
-        raise ConnectError()
+    except (IOError, socket.error) as e:
+        raise ConnectError(e)
 
 
 def open_atom(atom, path):
@@ -144,8 +144,8 @@ def open_atom(atom, path):
             with open(path, 'r') as file:
                 cmd[DATA_CONTENT_KEY] = file.read()
                 cmd[DATA_SIZE_KEY] = file.tell()
-        except IOError:
-            raise OpenError('Unable to read %s' % path)
+        except IOError as e:
+            raise OpenError(e)
 
     try:
         atom.write('%s\n' % OPEN_CMD)
@@ -156,8 +156,8 @@ def open_atom(atom, path):
                                         cmd.get(DATA_SIZE_KEY, 0),
                                         cmd.get(DATA_CONTENT_KEY, '')))
         atom.flush()  # pylint: disable=no-member
-    except (IOError, socket.error):
-        raise OpenError('Unable to send data to remote atom.')
+    except (IOError, socket.error) as e:
+        raise OpenError('Unable to send data to remote atom: %s' % e)
 
     logging.info('Opening %s', path)
 
@@ -185,7 +185,9 @@ def handle_atom(atom):
             data_size_key, data_size = __parse_line(atom.readline())
             if path_key != PATH_KEY or not path or \
                     data_size_key != DATA_SIZE_KEY or not data_size:
-                raise ValueError()
+                raise ValueError(
+                        'Invalid response from remote atom:\n%s: %s\n%s: %s' %
+                        (path_key, path, data_size_key, data_size))
 
             logging.info('Saving %s', path)
 
@@ -203,8 +205,8 @@ def handle_atom(atom):
                 if os.path.isfile(tmp_path):
                     shutil.copy2(tmp_path, path)
                     os.remove(tmp_path)
-    except (IOError, ValueError, socket.error):
-        raise HandleError()
+    except (IOError, ValueError, socket.error) as e:
+        raise HandleError(e)
 
 
 def __parse_args():
@@ -251,23 +253,25 @@ def main():
             (sock, atom) = connect_atom(args.host, args.port)
             open_atom(atom, path)
             handle_atom(atom)
-        except ConnectError:
-            logging.error(
-                    'Unable to connect to Atom on %s:%s', args.host, args.port)
+        except ConnectError as e:
+            logging.error('Failed to connect to remote atom: %s', e)
             exit(1)
         except OpenError as e:
-            logging.error('Unable to open %s. %s', path, e)
+            logging.error('Failed to open "%s" in remote atom: %s', path, e)
             exit(1)
-        except HandleError:
-            logging.error('Unable to save file.')
+        except HandleError as e:
+            logging.error('Failed to save "%s": %s', path, e)
             exit(1)
         finally:
             if sock:
                 sock.close()
             if atom:
                 atom.close()
-    except (Exception, KeyboardInterrupt) as e:
-        logging.error(e)
+    except KeyboardInterrupt:
+        logging.error('Aborted.')
+        exit(1)
+    except Exception as e:
+        logging.error('Unexpected error: %s', e)
         exit(1)
 
 
