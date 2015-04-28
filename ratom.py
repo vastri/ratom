@@ -116,7 +116,7 @@ def connect_atom(host, port):
         atom = sock.makefile('rw')
         info = atom.readline().strip()  # pylint: disable=no-member
         if not info:
-            raise ConnectError('Unable to read remote atom info.')
+            raise ConnectError('Unable to get remote atom info.')
         logging.info('Connected and using: %s', info)
 
         return (sock, atom)
