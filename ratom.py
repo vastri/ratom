@@ -54,11 +54,11 @@ def __check_path(path, force):
     """Checks if |path| is valid and writable.
 
     Args:
-      path: The path to check.
-      force: Whether to force open if the file is not writable.
+        path: The path to check.
+        force: Whether to force open if the file is not writable.
 
     Returns:
-      True if path is valid and writable, and False otherwise.
+        True if path is valid and writable, and False otherwise.
     """
     if os.path.isdir(path):
         # TODO (vastri): Support directory.
@@ -96,15 +96,15 @@ def connect_atom(host, port):
     """Connects to atom on a remote machine.
 
     Args:
-      host: The hostname of the atom server.
-      port: The port number of the atom server.
+        host: The hostname of the atom server.
+        port: The port number of the atom server.
 
     Returns:
-      A tuple of a socket object and a file object used for communication with
-      remote atom.
+        A tuple of a socket object and a file object used for communication with
+        remote atom.
 
     Raises:
-      ConnectError when error occurs during the connection.
+        ConnectError when error occurs during the connection.
     """
     try:
         socket.setdefaulttimeout(DEFAULT_TIMEOUT)
@@ -128,11 +128,11 @@ def open_atom(atom, path):
     """Opens |path| in the remote |atom|.
 
     Args:
-      atom: The file object used for communication with remote atom.
-      path: The path to open in remote atom.
+        atom: The file object used for communication with remote atom.
+        path: The path to open in remote atom.
 
     Raises:
-      OpenError when error occurs opening the path.
+        OpenError when error occurs opening the path.
     """
     cmd = {
             DISPLAY_NAME_KEY: '%s:%s' % (socket.gethostname(), path),
@@ -166,10 +166,10 @@ def handle_atom(atom):
     """Handles the remote |atom|'s response.
 
     Args:
-      atom: The file object used for communication with remote atom.
+        atom: The file object used for communication with remote atom.
 
     Raises:
-      HandleError when error occurs handling the response.
+        HandleError when error occurs handling the response.
     """
     try:
         while True:
